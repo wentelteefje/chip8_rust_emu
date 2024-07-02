@@ -22,9 +22,5 @@ struct Registers {
     sp: u8, // stack pointer is used to point to the topmost level of the stack.
 }
 
-// The stack is an array of 16 16-bit values, used to store the address that the interpreter shoud return
-// to when finished with a subroutine. Chip-8 allows for up to 16 levels of nested subroutines.
-struct Stack {
-    values: [u16; 16],
-}
+
 
