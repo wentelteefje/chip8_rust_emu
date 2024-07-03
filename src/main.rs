@@ -1,12 +1,10 @@
-// The stack is an array of 16 16-bit values, used to store the address that the interpreter shoud return
-// to when finished with a subroutine. Chip-8 allows for up to 16 levels of nested subroutines.
 #![allow(dead_code)]
 extern crate piston_window;
 use piston_window::*;
 
 struct Chip8 {
     registers: [u8; 16], // V0 to VF
-    stack: [u8; 32],
+    stack: Vec<u16>,
     memory: [u8; 4096],
     display: [[u8; 32]; 64],
     pc: u16,
@@ -14,11 +12,21 @@ struct Chip8 {
     i: u16,
 }
 
+// enum Opcode {
+//     OP_1NNN(u16),
+//     OP_4XNN(u8, u8),
+//     OP_6XNN(u8, u8),
+//     OP_7XNN(u8, u8),
+//     OP_8XY4(u8, u8),
+//     OP_ANNN(u16),
+//     OP_DXYN(u8, u8, u8),
+// }
+
 impl Chip8 {
     fn new() -> Self {
         Chip8 {
             registers: [0u8; 16],
-            stack: [0u8; 32],
+            stack: vec![0; 16],
             memory: [0u8; 4096],
             display: [[0u8; 32]; 64],
             pc: 0x200,
@@ -36,58 +44,134 @@ impl Chip8 {
     }
 
     fn emulate_cycle(&mut self) {
-        // Fetch the instruction from memory at the current pc, increment pc
+        // Fetch the instruction from memory at the current pc
         let v = u16::from_be_bytes([
             self.memory[self.pc as usize],
             self.memory[(self.pc + 1) as usize],
         ]);
+        // Increment pc
         self.pc += 2;
 
         // Decode and Execute the instruction
-        // In general CPUs the first byte of the instruction is what is known as the OPCODE
-        // so maybe at some point this match statement should be structured according to this structure
-        // println!("Instruction: {}", v);
-        match v {
-            v if (v & 0xF00F) == 0x8004 => {
-                // 8XY4
-                let x = ((v & 0x0F00) >> 8) as u8;
-                let y = ((v & 0x00F0) >> 4) as u8;
-                self.op_add_vy_vx(x as usize, y as usize);
-            }
-            v if (v & 0xF000) == 0x1000 => {
+        match v & 0xF000 {
+            0x0000 => match v & 0x000F {
+                0x0000 => {
+                    self.op_00e0();
+                }
+                0x000E => {
+                    self.op_00ee();
+                }
+                _ => println!("OPCODE {} not implemented!", v),
+            },
+            0x1000 => {
                 // 1NNN
                 let nnn: u16 = v & 0x0FFF;
-                self.op_jump(nnn);
+                self.op_1nnn(nnn);
             }
-            v if (v & 0xF000) == 0x6000 => {
+            0x2000 => {
+                // 2NNN
+                let nnn: u16 = (v & 0x0FFF) as u16;
+                self.op_2nnn(nnn);
+            }
+            0x3000 => {
+                // 3xnn - if vX == nn, skip next opcode
+                let x = ((v & 0x0F00) >> 8) as u8;
+                let nn: u8 = (v & 0x00FF) as u8;
+                self.op_3xnn(x, nn);
+            }
+            0x4000 => {
+                // 4XNN
+                let x = ((v & 0x0F00) >> 8) as u8;
+                let nn: u8 = (v & 0x00FF) as u8;
+                self.op_4xnn(x, nn);
+            }
+            0x5000 => {
+                // 5XY0
+                let x = ((v & 0x0F00) >> 8) as u8;
+                let y = ((v & 0x00F0) >> 4) as u8;
+                self.op_5xy0(x, y);
+            }
+            0x6000 => {
                 // 6XNN
                 let x = ((v & 0x0F00) >> 8) as u8;
                 let nn: u8 = (v & 0x00FF) as u8;
                 self.op_set_vx_nn(x as usize, nn);
             }
-            v if (v & 0xF000) == 0x7000 => {
+            0x7000 => {
                 // 7XNN
                 let x = ((v & 0x0F00) >> 8) as u8;
                 let nn: u8 = (v & 0x00FF) as u8;
-                self.op_add_vx_nn(x as usize, nn);
+                self.op_7xnn(x, nn);
             }
-            v if (v & 0xF000) == 0xA000 => {
+            0x8000 => {
+                let x = ((v & 0x0F00) >> 8) as u8;
+                let y = ((v & 0x00F0) >> 4) as u8;
+                match v & 0x000F {
+                    0x0000 => {
+                        self.op_8xy0(x, y);
+                    }
+                    0x0001 => {
+                        self.op_8xy1(x, y);
+                    }
+                    0x0002 => {
+                        self.op_8xy2(x, y);
+                    }
+                    0x0003 => {
+                        self.op_8xy3(x, y);
+                    }
+                    0x0004 => {
+                        self.op_8xy4(x, y);
+                    }
+                    0x0005 => {
+                        self.op_8xy5(x, y);
+                    }
+                    0x0006 => {
+                        self.op_8xy6(x, y);
+                    }
+                    0x0007 => {
+                        self.op_8xy7(x, y);
+                    }
+                    0x000E => {
+                        self.op_8xye(x, y);
+                    }
+                    _ => println!("OPCODE {} not implemented!", v),
+                }
+            }
+            0x9000 => {
+                // 9xy0
+                let x = ((v & 0x0F00) >> 8) as u8;
+                let y = ((v & 0x00F0) >> 4) as u8;
+                self.op_9xy0(x, y);
+            }
+            0xA000 => {
                 // ANNN
                 let nnn: u16 = v & 0x0FFF;
                 self.op_i_nnn(nnn);
             }
-            v if (v & 0xF000) == 0xD000 => {
+            0xD000 => {
                 // DXYN
                 let vx = ((v & 0x0F00) >> 8) as u8;
                 let vy = ((v & 0x00F0) >> 4) as u8;
                 let n: u8 = (v & 0x000F) as u8;
                 self.op_draw_vx_vy_n(vx, vy, n);
             }
-            v if (v & 0xF000) == 0x4000 => {
-                // 4XNN
+            0xF000 => {
                 let x = ((v & 0x0F00) >> 8) as u8;
-                let nn: u8 = (v & 0x00FF) as u8;
-                self.op_skip_next(x.into(), nn);
+                match v & 0x00FF {
+                    0x001E => {
+                        self.op_fx1e(x);
+                    }
+                    0x0033 => {
+                        self.op_fx33(x);
+                    }
+                    0x0055 => {
+                        self.op_fx55(x);
+                    }
+                    0x0065 => {
+                        self.op_fx65(x);
+                    }
+                    _ => println!("OPCODE {} not implemented!", v),
+                }
             }
             _ => println!("OPCODE {} not implemented!", v),
         }
@@ -95,7 +179,7 @@ impl Chip8 {
 
     fn draw_graphics(&self, window: &mut PistonWindow, e: &Event) {
         window.draw_2d(e, |c, g, _| {
-            clear([0.0, 0.0, 0.0, 1.0], g); // Clear the screen to black
+            clear([1.0, 218.0 / 255.0, 244.0 / 255.0, 1.0], g); // Clear the screen to (255,218,244)
             for x in 0..64 {
                 for y in 0..32 {
                     if self.display[x][y] != 0 {
@@ -114,21 +198,102 @@ impl Chip8 {
 
 impl Chip8 {
     // 00E0 - Clear screen
-    fn op_cls(&mut self) {
+    fn op_00e0(&mut self) {
         self.display = [[0u8; 32]; 64];
     }
 
+    // 00EE - RET
+    // Return from a subroutine.
+    // The interpreter sets the program counter to the address at the top of the stack, then subtracts 1 from the stack pointer.
+    fn op_00ee(&mut self) {
+        let top_stack_address = self.stack.pop().unwrap_or_default();
+        self.pc = top_stack_address;
+        // self.sp -= 1;
+    }
+
     // 1NNN - Jumps to address nnn
-    fn op_jump(&mut self, nnn: u16) {
+    fn op_1nnn(&mut self, nnn: u16) {
         self.pc = nnn;
+    }
+
+    // 2nnn - CALL addr
+    // Call subroutine at nnn.
+    // The interpreter increments the stack pointer, then puts the current PC on the top of the stack. The PC is then set to nnn.
+    fn op_2nnn(&mut self, nnn: u16) {
+        self.stack.push(self.pc);
+        self.pc = nnn;
+    }
+
+    // 3xnn - if vX == nn, skip next opcode, i.e. increment the program counter by 2.
+    fn op_3xnn(&mut self, x: u8, nn: u8) {
+        if self.registers[x as usize] == nn {
+            self.pc += 2;
+        }
+    }
+
+    // 5xy0 - if vX == vY, skip next opcode
+    fn op_5xy0(&mut self, x: u8, y: u8) {
+        if self.registers[x as usize] == self.registers[y as usize] {
+            self.pc += 2;
+        }
+    }
+
+    // 9xy0 - if vX != vY, skip next opcode
+    fn op_9xy0(&mut self, x: u8, y: u8) {
+        if self.registers[x as usize] != self.registers[y as usize] {
+            self.pc += 2;
+        }
+    }
+
+    // FX65
+    // read the bytes from memory pointed to by I into the registers v0 to vX, I is incremented by X+1 [Quirk 11]
+    fn op_fx65(&mut self, x: u8) {
+        assert!(x <= 0x0F);
+
+        let start_address = self.i;
+        for i in 0..(x + 1) {
+            let mem_byte = self.memory[(start_address as usize) + i as usize];
+            self.registers[i as usize] = mem_byte;
+        }
+        self.i += (x + 1) as u16;
+    }
+
+    // FX55
+    // Store registers V0 through Vx in memory starting at location I.
+    fn op_fx55(&mut self, x: u8) {
+        assert!(x <= 0x0F);
+        let start_address = self.i;
+        for i in 0..(x + 1) {
+            self.memory[(start_address as usize) + i as usize] = self.registers[i as usize];
+        }
+    }
+
+    // Store BCD representation of Vx in memory locations I, I+1, and I+2.
+    // The interpreter takes the decimal value of Vx, and places the hundreds digit in memory at location in I,
+    // the tens digit at location I+1, and the ones digit at location I+2.
+    fn op_fx33(&mut self, x: u8) {
+        let vx = self.registers[x as usize];
+        let hundreds = vx / 100;
+        let tens = (vx % 100) / 10;
+        let ones = vx % 10;
+
+        self.memory[self.i as usize] = hundreds;
+        self.memory[(self.i + 1) as usize] = tens;
+        self.memory[(self.i + 2) as usize] = ones;
+    }
+
+    // Fx1E
+    // The values of I and Vx are added, and the results are stored in I.
+    fn op_fx1e(&mut self, x: u8) {
+        self.i += self.registers[x as usize] as u16;
     }
 
     // 4xkk - SNE Vx, byte
     // Skip next instruction if Vx != kk.
     // The interpreter compares register Vx to kk, and if they are not equal, increments the program counter by 2.
-    fn op_skip_next(&mut self, x: usize, nn: u8) {
-        if self.registers[x] != nn {
-            self.pc += 4;
+    fn op_4xnn(&mut self, x: u8, nn: u8) {
+        if self.registers[x as usize] != nn {
+            self.pc += 2;
         }
     }
 
@@ -140,21 +305,90 @@ impl Chip8 {
     // 7XNN - ADD Vx, byte
     // Set Vx = Vx + kk.
     // Adds the value kk to the value of register Vx, then stores the result in Vx.
-    fn op_add_vx_nn(&mut self, x: usize, nn: u8) {
-        self.registers[x] += nn;
+    fn op_7xnn(&mut self, x: u8, nn: u8) {
+        self.registers[x as usize] = self.registers[x as usize].wrapping_add(nn);
+    }
+
+    // 8xy0 - LD Vx, Vy
+    // Set Vx = Vy.
+    // Stores the value of register Vy in register Vx.
+    fn op_8xy0(&mut self, x: u8, y: u8) {
+        self.registers[x as usize] = self.registers[y as usize];
+    }
+
+    // 8xy1 - OR Vx, Vy
+    // Set Vx = Vx OR Vy.
+    // Performs a bitwise OR on the values of Vx and Vy, then stores the result in Vx.
+    fn op_8xy1(&mut self, x: u8, y: u8) {
+        self.registers[x as usize] = self.registers[x as usize] | self.registers[y as usize];
+    }
+
+    // 8xy2 - AND Vx, Vy
+    // Set Vx = Vx AND Vy.
+    fn op_8xy2(&mut self, x: u8, y: u8) {
+        self.registers[x as usize] = self.registers[x as usize] & self.registers[y as usize];
+    }
+
+    // 8xy3 - XOR Vx, Vy
+    // Set Vx = Vx XOR Vy.
+    fn op_8xy3(&mut self, x: u8, y: u8) {
+        self.registers[x as usize] = self.registers[x as usize] ^ self.registers[y as usize];
+    }
+
+    // 8xy5 - SUB Vx, Vy
+    // Set Vx = Vx - Vy, set VF = NOT borrow.
+    // If Vx > Vy, then VF is set to 1, otherwise 0. Then Vy is subtracted from Vx, and the results stored in Vx.
+    fn op_8xy5(&mut self, x: u8, y: u8) {
+        self.registers[0x0F] = 0;
+        let vx = self.registers[x as usize];
+        let vy = self.registers[y as usize];
+
+        if vx > vy {
+            self.registers[0x0F] = 1;
+        }
+        self.registers[x as usize] = vx.wrapping_sub(vy);
+    }
+
+    // 8xy6
+    // set vX to vY and shift vX one bit to the right, set vF to the bit shifted out, even if X=F
+    fn op_8xy6(&mut self, x: u8, y: u8) {
+        self.registers[x as usize] = self.registers[y as usize] >> 1;
+        self.registers[0x0F] = 1;
+    }
+
+    // 8xy7
+    // set vX to the result of subtracting vX from vY, vF is set to 0 if an underflow happened, to 1 if not, even if X=F!
+    fn op_8xy7(&mut self, x: u8, y: u8) {
+        self.registers[0x0F] = 0;
+        let vx = self.registers[x as usize];
+        let vy = self.registers[y as usize];
+
+        if vy > vx {
+            self.registers[0x0F] = 1;
+        }
+        self.registers[x as usize] = vy.wrapping_sub(vx);
+    }
+
+    // 8xyE
+    // set vX to vY and shift vX one bit to the left, set vF to the bit shifted out, even if X=F
+    fn op_8xye(&mut self, x: u8, y: u8) {
+        self.registers[x as usize] = self.registers[y as usize] << 1;
+        self.registers[0x0F] = 1;
     }
 
     // 8XY4 - Set Vx = Vx + Vy, set VF = carry.
     // The values of Vx and Vy are added together. If the result is greater than 8 bits (i.e., > 255,)
     // VF is set to 1, otherwise 0. Only the lowest 8 bits of the result are kept, and stored in Vx.
-    fn op_add_vy_vx(&mut self, x: usize, y: usize) {
-        let result: u16 = (self.registers[x] + self.registers[y]).into();
+    fn op_8xy4(&mut self, x: u8, y: u8) {
+        let result = (self.registers[x as usize] as u16) + (self.registers[y as usize] as u16);
+
         if result > 255 {
-            self.op_set_vx_nn(x, 255u8);
-            self.op_set_vx_nn(0x0F, 0x01);
+            // Keep only lowest 8 bits of result
+            self.registers[x as usize] = (result & 0xFF) as u8;
+            self.registers[0x0F] = 0x01;
         } else {
-            self.op_set_vx_nn(x, result.try_into().unwrap());
-            self.op_set_vx_nn(0x0F, 0x00);
+            self.registers[x as usize] = result as u8;
+            self.registers[0x0F] = 0x00;
         }
     }
 
@@ -174,7 +408,8 @@ impl Chip8 {
             for bit_index in 0..8 {
                 let pixel_bit = byte & (0x80 >> bit_index);
                 let vx_wrapped = ((self.registers[vx as usize] as usize + bit_index) % 64) as usize;
-                let vy_wrapped = ((self.registers[vy as usize] as usize + byte_index as usize) % 32) as usize;
+                let vy_wrapped =
+                    ((self.registers[vy as usize] as usize + byte_index as usize) % 32) as usize;
                 let current_pixel = self.display[vx_wrapped][vy_wrapped];
                 let new_pixel = (pixel_bit > 0) as u8 ^ current_pixel;
                 if current_pixel == 1 && new_pixel == 0 {
@@ -188,8 +423,10 @@ impl Chip8 {
 
 fn main() {
     let mut chip8 = Chip8::new();
-    chip8.load_rom("IBM_Logo.ch8");
-    // chip8.load_rom("1-chip8-logo.ch8");
+    // chip8.load_rom("roms/IBM_Logo.ch8");
+    // chip8.load_rom("roms/1-chip8-logo.ch8");
+    // chip8.load_rom("roms/3-corax+.ch8");
+    chip8.load_rom("roms/4-flags.ch8");
 
     let mut window: PistonWindow = WindowSettings::new("CHIP-8 Emulator", [640, 320])
         .exit_on_esc(true)
