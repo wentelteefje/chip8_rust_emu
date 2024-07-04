@@ -335,61 +335,71 @@ impl Chip8 {
         self.registers[x as usize] = self.registers[x as usize] ^ self.registers[y as usize];
     }
 
+    // 8XY4 - Set Vx = Vx + Vy, set VF = carry.
+    // The values of Vx and Vy are added together. If the result is greater than 8 bits (i.e., > 255,)
+    // VF is set to 1, otherwise 0. Only the lowest 8 bits of the result are kept, and stored in Vx.
+    fn op_8xy4(&mut self, x: u8, y: u8) {
+        let vx = self.registers[x as usize];
+        let vy = self.registers[y as usize];
+
+        self.registers[x as usize] = self.registers[x as usize].wrapping_add(self.registers[y as usize]);
+        if (vx as u16 + vy as u16) > 255 {
+            self.registers[0x0F] = 0x01;
+        } else {
+            self.registers[0x0F] = 0x00;
+        }
+    }
+
     // 8xy5 - SUB Vx, Vy
     // Set Vx = Vx - Vy, set VF = NOT borrow.
     // If Vx > Vy, then VF is set to 1, otherwise 0. Then Vy is subtracted from Vx, and the results stored in Vx.
     fn op_8xy5(&mut self, x: u8, y: u8) {
-        self.registers[0x0F] = 0;
         let vx = self.registers[x as usize];
         let vy = self.registers[y as usize];
 
-        if vx > vy {
-            self.registers[0x0F] = 1;
+        self.registers[x as usize] = self.registers[x as usize].wrapping_sub(self.registers[y as usize]);
+        if vx >= vy {
+            self.registers[0x0F] = 0x01;
+        } else {
+            self.registers[0x0F] = 0x00;
         }
-        self.registers[x as usize] = vx.wrapping_sub(vy);
     }
 
-    // 8xy6
-    // set vX to vY and shift vX one bit to the right, set vF to the bit shifted out, even if X=F
+    // Set vX to vY and shift vX one bit to the right, set vF to the bit shifted out, even if X=F
     fn op_8xy6(&mut self, x: u8, y: u8) {
-        self.registers[x as usize] = self.registers[y as usize] >> 1;
-        self.registers[0x0F] = 1;
+        // Set vX to vY
+        self.registers[x as usize] = self.registers[y as usize];
+        let shifted_bit: u8 = self.registers[x as usize] & 0x01;
+        // Shift right by one
+        self.registers[x as usize] = self.registers[x as usize] >> 1;
+        // Store shifted bit in vF
+        self.registers[0x0F] = shifted_bit;
     }
 
-    // 8xy7
-    // set vX to the result of subtracting vX from vY, vF is set to 0 if an underflow happened, to 1 if not, even if X=F!
+    // Set vX to the result of subtracting vX from vY, vF is set to 0 if an underflow happened, to 1 if not, even if X=F!
     fn op_8xy7(&mut self, x: u8, y: u8) {
-        self.registers[0x0F] = 0;
         let vx = self.registers[x as usize];
         let vy = self.registers[y as usize];
 
-        if vy > vx {
-            self.registers[0x0F] = 1;
+        self.registers[x as usize] = self.registers[y as usize].wrapping_sub(self.registers[x as usize]);
+        if vy >= vx {
+            self.registers[0x0F] = 0x01;
+        } else {
+            self.registers[0x0F] = 0x00;
         }
-        self.registers[x as usize] = vy.wrapping_sub(vx);
+        
     }
 
     // 8xyE
     // set vX to vY and shift vX one bit to the left, set vF to the bit shifted out, even if X=F
     fn op_8xye(&mut self, x: u8, y: u8) {
-        self.registers[x as usize] = self.registers[y as usize] << 1;
-        self.registers[0x0F] = 1;
-    }
-
-    // 8XY4 - Set Vx = Vx + Vy, set VF = carry.
-    // The values of Vx and Vy are added together. If the result is greater than 8 bits (i.e., > 255,)
-    // VF is set to 1, otherwise 0. Only the lowest 8 bits of the result are kept, and stored in Vx.
-    fn op_8xy4(&mut self, x: u8, y: u8) {
-        let result = (self.registers[x as usize] as u16) + (self.registers[y as usize] as u16);
-
-        if result > 255 {
-            // Keep only lowest 8 bits of result
-            self.registers[x as usize] = (result & 0xFF) as u8;
-            self.registers[0x0F] = 0x01;
-        } else {
-            self.registers[x as usize] = result as u8;
-            self.registers[0x0F] = 0x00;
-        }
+        // Set vX to vY
+        let shifted_bit: u8 = (self.registers[y as usize] & 0x80) >> 7;        
+        self.registers[y as usize] = self.registers[y as usize] << 1;   
+        self.registers[x as usize] = self.registers[y as usize];        
+        // Shift right by one
+        // Store shifted bit in vF
+        self.registers[0x0F] = shifted_bit;
     }
 
     // Annn - LD I, addr
@@ -510,5 +520,34 @@ mod tests {
 
         // Check the result, expecting I to be set to 0xABC
         assert_eq!(emulator.i, 0xABC, "Index register I should be set to 0xABC");
+    }
+
+    #[test]
+    fn test_8xye_with_vf_flag_with_vf_as_input() {
+        let mut emulator = Chip8::new();
+
+        // Test round 1: 8XYE
+        
+        // set vX to vY and shift vX one bit to the left, set vF to the bit shifted out, even if X=F
+        // fn op_8xye(&mut self, x: u8, y: u8) {
+        // Init registers
+        emulator.registers[0x0F] = 188;
+
+        // Program starts at 0x200, load our opcode there:
+        // Opcode 8FFE
+        emulator.memory[0x200] = 0x8F;
+        emulator.memory[0x201] = 0xFE;
+
+        // Set program counter to start of program
+        emulator.pc = 0x200;
+
+        // Execute the opcode
+        emulator.emulate_cycle();
+
+        // Check the result, expecting V3 to now be 0x05 + 0x12 = 0x17
+        assert_eq!(
+            emulator.registers[0x0F], 0x01,
+            "vF should be equal to 0x01"
+        );
     }
 }
