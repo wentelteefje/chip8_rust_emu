@@ -1,3 +1,19 @@
+# Ignore target directories
 /target
-/chip8/target/
-/chip8-core/target/
+**/target
+
+# Ignore build artifacts
+/build
+**/build
+
+# Ignore lock files
+Cargo.lock
+*.lock
+
+# Ignore temporary files
+*.tmp
+*.swp
+*.swo
+
+# Ignore DS_Store files (macOS)
+.DS_Store
