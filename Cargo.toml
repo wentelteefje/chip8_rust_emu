@@ -1,7 +1,6 @@
-[package]
-name = "chip8_emulator"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-piston_window = "0.123.0"
+[workspace]
+members = [
+    "chip8",
+    "chip8-core",
+]
+resolver = "2"
