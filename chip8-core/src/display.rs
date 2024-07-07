@@ -7,7 +7,9 @@ pub struct Display {
 
 impl Display {
     pub fn new() -> Self {
-        Display { pixels: [[0u8; 32]; 64] }
+        Display {
+            pixels: [[0u8; 32]; 64],
+        }
     }
 
     pub fn draw_graphics(&self, window: &mut PistonWindow, e: &Event) {
@@ -35,6 +37,4 @@ impl Display {
     pub fn get_pixel(&mut self, x: usize, y: usize) -> u8 {
         self.pixels[x][y]
     }
-
-
 }

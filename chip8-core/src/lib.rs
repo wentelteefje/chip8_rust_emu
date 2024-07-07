@@ -1,3 +1,4 @@
 pub mod display;
-pub mod keyboard;
 pub mod emu;
+pub mod keyboard;
+pub mod memory;
